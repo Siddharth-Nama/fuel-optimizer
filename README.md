@@ -35,8 +35,4 @@ Coordinates make one OSRM call. Two city names add at most two Nominatim lookups
 - The CSV has no coordinates. `scripts/build_station_index.py` resolves each US highway exit once into `data/stations_geocoded.json`. The API does not geocode stops.
 - Canadian rows in the CSV are skipped.
 
-## Tests
-
-```powershell
-.\.venv\Scripts\python backend\manage.py test routing
 ```
