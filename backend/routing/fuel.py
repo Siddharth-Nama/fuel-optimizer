@@ -55,3 +55,28 @@ def plan_stops(stations, total_miles, range_miles=RANGE_MILES):
         here = target
 
     return {"start_station": _stop_for(start_station), "stops": stops}
+
+
+def fuel_plan(stations, total_miles, range_miles=RANGE_MILES, mpg=MPG):
+    plan = plan_stops(stations, total_miles, range_miles)
+    tank_gallons = range_miles / mpg
+    trip_gallons = total_miles / mpg
+
+    stops = []
+    for stop in plan["stops"]:
+        gallons = stop.pop("miles_bought") / mpg
+        stops.append({**stop, "gallons": gallons, "cost_usd": gallons * stop["price"]})
+
+    start_gallons = min(tank_gallons, trip_gallons)
+    start_station = plan["start_station"]
+    start_cost = start_gallons * start_station["price"]
+
+    return {
+        "start_station": {**start_station, "gallons": start_gallons, "cost_usd": start_cost},
+        "stops": stops,
+        "mpg": mpg,
+        "range_miles": range_miles,
+        "tank_gallons": tank_gallons,
+        "trip_gallons": trip_gallons,
+        "total_cost_usd": start_cost + sum(stop["cost_usd"] for stop in stops),
+    }

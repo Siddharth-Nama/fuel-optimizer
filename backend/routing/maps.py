@@ -36,13 +36,15 @@ def _cache_key(name):
     return " ".join(name.lower().split())
 
 
-def geocode(name, field):
+def geocode(name, field, calls=None):
     key = _cache_key(name)
     if key not in _place_cache:
         query = urllib.parse.urlencode(
             {"q": name, "format": "json", "countrycodes": "us", "limit": 1}
         )
         rows = _get_json(f"{NOMINATIM_URL}?{query}")
+        if calls is not None:
+            calls["nominatim"] += 1
         _place_cache[key] = (
             {"lat": float(rows[0]["lat"]), "lng": float(rows[0]["lon"])} if rows else None
         )
@@ -53,10 +55,12 @@ def geocode(name, field):
     return require_usa({"name": name, **point}, field)
 
 
-def route(start, finish):
+def route(start, finish, calls=None):
     coords = f"{start['lng']},{start['lat']};{finish['lng']},{finish['lat']}"
     query = urllib.parse.urlencode({"overview": "simplified", "geometries": "geojson"})
     data = _get_json(f"{OSRM_URL}/{coords}?{query}")
+    if calls is not None:
+        calls["osrm"] += 1
 
     code = data.get("code") if isinstance(data, dict) else None
     if code in ("NoRoute", "NoSegment"):
