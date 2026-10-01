@@ -8,30 +8,29 @@ _LOADED = None
 
 
 def load_stations(path=DATA_PATH):
-    stations = []
-    seen = set()
+    stations = {}
     with path.open(newline="", encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
             opis_id = (row.get("OPIS Truckstop ID") or "").strip()
             raw_price = (row.get("Retail Price") or "").strip()
-            if not opis_id or not raw_price or opis_id in seen:
+            if not opis_id or not raw_price:
                 continue
             try:
                 price = float(raw_price)
             except ValueError:
                 continue
-            seen.add(opis_id)
-            stations.append(
-                {
-                    "opis_id": opis_id,
-                    "name": (row.get("Truckstop Name") or "").strip(),
-                    "address": (row.get("Address") or "").strip(),
-                    "city": (row.get("City") or "").strip(),
-                    "state": (row.get("State") or "").strip(),
-                    "price": price,
-                }
-            )
-    return stations
+            # One station can be listed more than once; the driver pays the lowest price.
+            if opis_id in stations and stations[opis_id]["price"] <= price:
+                continue
+            stations[opis_id] = {
+                "opis_id": opis_id,
+                "name": (row.get("Truckstop Name") or "").strip(),
+                "address": (row.get("Address") or "").strip(),
+                "city": (row.get("City") or "").strip(),
+                "state": (row.get("State") or "").strip(),
+                "price": price,
+            }
+    return list(stations.values())
 
 
 def load_geocoded_stations(path=GEOCODED_PATH):
