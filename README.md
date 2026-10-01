@@ -41,7 +41,20 @@ python -m venv venv
 
 The response holds the route geometry, the start station, the ordered fuel stops (each with its `route_mile`, gallons bought and CSV price), `trip_gallons`, `total_cost_usd`, and how many Nominatim and OSRM calls the request made. Its `map` field is a GeoJSON FeatureCollection with the route line, start and finish points, and one point per fuel stop. Paste it into [geojson.io](https://geojson.io) to see the trip.
 
-Coordinates make one OSRM call. Two city names add at most two Nominatim lookups. Repeat requests reuse an in-memory cache. Import `postman/fuel-optimizer.postman_collection.json` for the same calls.
+Coordinates make one OSRM call. Two city names add at most two Nominatim lookups. Repeat requests reuse in-memory caches: place names until the server restarts, routes for 10 minutes. A repeated trip makes no external calls.
+
+Import `postman/fuel-optimizer.postman_collection.json` into Postman for these trips, a long coast-to-coast trip, a short trip with no stops, and the error cases.
+
+### Response
+
+```text
+start, finish     {lat, lng}, plus name when a place name was sent
+route             miles, minutes, geometry [{lat, lng}, ...]
+fuel              mpg, range_miles, tank_gallons, trip_gallons, total_cost_usd,
+                  start_station {name, city, state, price_per_gallon, lat, lng, route_mile, gallons, cost_usd, ...},
+                  stops [{same fields}, ...] in road order
+external_calls    {nominatim, osrm} made by this request
+```
 
 ### Errors
 
