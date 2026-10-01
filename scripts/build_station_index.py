@@ -134,28 +134,56 @@ def city_point(city, state, places, cache):
     return point
 
 
-def exit_point(address, lat, lng):
-    match = EXIT_RE.search(address or "")
-    if not match:
-        return None
-    ref = match.group(1).upper()
-    south, north = lat - 0.35, lat + 0.35
-    west, east = lng - 0.45, lng + 0.45
-    query = (
-        f'[out:json][timeout:25];'
-        f'node["highway"="motorway_junction"]["ref"="{ref}"]'
-        f"({south},{west},{north},{east});out body;"
-    )
-    time.sleep(1.1)
-    data = _get_json(OVERPASS_URL, data=query.encode())
+def _bbox(lat, lng):
+    return (lat - 0.35, lng - 0.45, lat + 0.35, lng + 0.45)
+
+
+def _nearest_junction(lat, lng, ref, nodes):
+    south, west, north, east = _bbox(lat, lng)
     best = None
     best_miles = 15.0
-    for node in data.get("elements", []):
-        dist = _miles(lat, lng, node["lat"], node["lon"])
+    for node in nodes:
+        if (node.get("tags") or {}).get("ref", "").upper() != ref:
+            continue
+        nlat, nlng = node["lat"], node["lon"]
+        if not (south <= nlat <= north and west <= nlng <= east):
+            continue
+        dist = _miles(lat, lng, nlat, nlng)
         if dist < best_miles:
-            best = (node["lat"], node["lon"])
+            best = (nlat, nlng)
             best_miles = dist
     return best
+
+
+def exit_points(items):
+    """Look up several exits in one Overpass call.
+
+    items are (lat, lng, ref). Same town and exit number share one result.
+    """
+    found = {}
+    pending = []
+    for lat, lng, ref in items:
+        key = (round(lat, 2), round(lng, 2), ref)
+        if key in found or any(item[0] == key for item in pending):
+            continue
+        pending.append((key, lat, lng, ref))
+
+    for start in range(0, len(pending), 8):
+        chunk = pending[start : start + 8]
+        parts = []
+        for key, lat, lng, ref in chunk:
+            south, west, north, east = _bbox(lat, lng)
+            parts.append(
+                f'node["highway"="motorway_junction"]["ref"="{ref}"]'
+                f"({south},{west},{north},{east});"
+            )
+        query = "[out:json][timeout:40];(" + "".join(parts) + ");out body;"
+        time.sleep(1.0)
+        data = _get_json(OVERPASS_URL, data=query.encode())
+        nodes = data.get("elements", [])
+        for key, lat, lng, ref in chunk:
+            found[key] = _nearest_junction(lat, lng, ref, nodes)
+    return found
 
 
 def _load_done(path):
@@ -165,41 +193,88 @@ def _load_done(path):
     return {row["opis_id"]: row for row in rows}
 
 
+def _save(path, done):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(list(done.values())), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _record(done, row, lat, lng):
+    done[row["opis_id"]] = {
+        "opis_id": row["opis_id"],
+        "name": row["name"],
+        "address": row["address"],
+        "city": row["city"],
+        "state": row["state"],
+        "price": row["price"],
+        "lat": round(lat, 6),
+        "lng": round(lng, 6),
+    }
+
+
 def build(limit=None, output=OUTPUT):
     places = load_places()
     done = _load_done(output)
     name_cache = {}
-    pending = [row for row in load_stations() if row["state"] not in CANADA]
+    pending = [
+        row
+        for row in load_stations()
+        if row["state"] not in CANADA and row["opis_id"] not in done
+    ]
     if limit is not None:
         pending = pending[:limit]
-    snapped = 0
+
+    located = []
     for row in pending:
-        if row["opis_id"] in done:
-            continue
         point = city_point(row["city"], row["state"], places, name_cache)
         if point is None:
+            print(f"skip {row['opis_id']}, unknown place {row['city']}, {row['state']}")
             continue
-        lat, lng = point
-        if EXIT_RE.search(row["address"] or ""):
-            try:
-                junction = exit_point(row["address"], lat, lng)
-            except Exception:
-                print(f"skip {row['opis_id']}, exit lookup failed")
+        located.append((row, point[0], point[1]))
+
+    exits = []
+    plain = []
+    for row, lat, lng in located:
+        match = EXIT_RE.search(row["address"] or "")
+        if match:
+            exits.append((row, lat, lng, match.group(1).upper()))
+        else:
+            plain.append((row, lat, lng))
+
+    for row, lat, lng in plain:
+        _record(done, row, lat, lng)
+    _save(output, done)
+    print(f"saved {len(done)} stops before exit lookups")
+
+    snapped = 0
+    for start in range(0, len(exits), 80):
+        chunk = exits[start : start + 80]
+        try:
+            found = exit_points((lat, lng, ref) for row, lat, lng, ref in chunk)
+        except Exception as exc:
+            print(f"exit batch failed ({exc}); retrying one by one")
+            found = {}
+            for row, lat, lng, ref in chunk:
+                key = (round(lat, 2), round(lng, 2), ref)
+                if key in found:
+                    continue
+                try:
+                    found.update(exit_points([(lat, lng, ref)]))
+                except Exception:
+                    print(f"skip {row['opis_id']}, exit lookup failed")
+        for row, lat, lng, ref in chunk:
+            key = (round(lat, 2), round(lng, 2), ref)
+            if key not in found:
                 continue
+            junction = found[key]
             if junction is not None:
                 lat, lng = junction
                 snapped += 1
-        done[row["opis_id"]] = {
-            "opis_id": row["opis_id"],
-            "name": row["name"],
-            "address": row["address"],
-            "city": row["city"],
-            "state": row["state"],
-            "price": row["price"],
-            "lat": round(lat, 6),
-            "lng": round(lng, 6),
-        }
-        output.write_text(json.dumps(list(done.values())), encoding="utf-8")
+            _record(done, row, lat, lng)
+        _save(output, done)
+        print(f"saved {len(done)} stops, {snapped} snapped to an exit")
+
     print(f"wrote {len(done)} stops, {snapped} snapped to an exit, file {output}")
 
 

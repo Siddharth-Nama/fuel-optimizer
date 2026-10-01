@@ -1,15 +1,13 @@
 import csv
+import json
 from pathlib import Path
 
 DATA_PATH = Path(__file__).resolve().parents[2] / "data" / "fuel-prices-for-be-assessment.csv"
+GEOCODED_PATH = Path(__file__).resolve().parents[2] / "data" / "stations_geocoded.json"
+_LOADED = None
 
 
 def load_stations(path=DATA_PATH):
-    """Read truck stops from the Spotter price file.
-
-    Rows with a blank or unreadable price are skipped. The same OPIS id
-    is kept once.
-    """
     stations = []
     seen = set()
     with path.open(newline="", encoding="utf-8") as handle:
@@ -34,3 +32,16 @@ def load_stations(path=DATA_PATH):
                 }
             )
     return stations
+
+
+def load_geocoded_stations(path=GEOCODED_PATH):
+    if not path.exists():
+        return []
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def get_stations():
+    global _LOADED
+    if _LOADED is None:
+        _LOADED = load_geocoded_stations()
+    return _LOADED
