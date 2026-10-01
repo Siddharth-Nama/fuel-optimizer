@@ -6,6 +6,7 @@ from django.views.decorators.http import require_POST
 
 from routing.fuel import FuelPlanError, fuel_plan
 from routing.geo import InvalidLocation, parse_location, require_usa
+from routing.geojson import trip_map
 from routing.maps import MapServiceError, geocode, route
 from routing.route import mile_markers
 from routing.stations import stations_along_route
@@ -19,10 +20,10 @@ def _error(message, status=400):
     return JsonResponse({"error": message}, status=status)
 
 
-def _resolve(point, field, calls):
+def _resolve(point, field):
     if "lat" in point:
         return require_usa(point, field)
-    return geocode(point["name"], field, calls)
+    return geocode(point["name"], field)
 
 
 def _station_json(station):
@@ -51,13 +52,12 @@ def plan_route(request):
     if not isinstance(body, dict):
         return _error("Request body must be a JSON object.")
 
-    calls = {"nominatim": 0, "osrm": 0}
     try:
         start = parse_location(body.get("start"), "start")
         finish = parse_location(body.get("finish"), "finish")
-        start = _resolve(start, "start", calls)
-        finish = _resolve(finish, "finish", calls)
-        road = route(start, finish, calls)
+        start = _resolve(start, "start")
+        finish = _resolve(finish, "finish")
+        road = route(start, finish)
     except InvalidLocation as exc:
         return _error(str(exc))
     except MapServiceError:
@@ -69,6 +69,10 @@ def plan_route(request):
     except FuelPlanError as exc:
         return _error(str(exc), 422)
 
+    geometry = [{"lat": point["lat"], "lng": point["lng"]} for point in points]
+    start_station = _station_json(plan["start_station"])
+    stops = [_station_json(stop) for stop in plan["stops"]]
+
     return JsonResponse(
         {
             "start": start,
@@ -76,7 +80,7 @@ def plan_route(request):
             "route": {
                 "miles": round(road["miles"], 1),
                 "minutes": round(road["minutes"]),
-                "geometry": [{"lat": point["lat"], "lng": point["lng"]} for point in points],
+                "geometry": geometry,
             },
             "fuel": {
                 "mpg": plan["mpg"],
@@ -84,9 +88,10 @@ def plan_route(request):
                 "tank_gallons": plan["tank_gallons"],
                 "trip_gallons": round(plan["trip_gallons"], 2),
                 "total_cost_usd": round(plan["total_cost_usd"], 2),
-                "start_station": _station_json(plan["start_station"]),
-                "stops": [_station_json(stop) for stop in plan["stops"]],
+                "start_station": start_station,
+                "stops": stops,
             },
-            "external_calls": calls,
+            # Paste this value into geojson.io to see the road and the stops.
+            "map": trip_map(start, finish, geometry, start_station, stops),
         }
     )
