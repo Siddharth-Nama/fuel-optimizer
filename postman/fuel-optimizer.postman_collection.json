@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "fuel-optimizer",
-    "description": "Spotter fuel route API. Start the server with `python backend/manage.py runserver`, then send these in order. Check `external_calls` in each response: coordinates make 1 OSRM call, a repeat makes 0.",
+    "description": "Spotter fuel route API. Start the server with `python backend/manage.py runserver`, then send these in order. Coordinates make 1 OSRM call; a repeated trip is served from cache.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -53,7 +53,7 @@
                 "plan"
               ]
             },
-            "description": "1 OSRM call, 0 Nominatim. Send it twice: the second time makes 0 calls.",
+            "description": "1 OSRM call, no Nominatim. Send it twice: the second answer comes from cache and is much faster.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"start\": {\n    \"lat\": 32.7767,\n    \"lng\": -96.797\n  },\n  \"finish\": {\n    \"lat\": 39.7392,\n    \"lng\": -104.9903\n  }\n}",
@@ -86,7 +86,7 @@
                 "plan"
               ]
             },
-            "description": "Cold cache: 2 Nominatim + 1 OSRM = 3 calls. Repeat: 0.",
+            "description": "Cold cache: 2 Nominatim + 1 OSRM = 3 calls. A repeat comes from cache.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"start\": \"Dallas, TX\",\n  \"finish\": \"Denver, CO\"\n}",

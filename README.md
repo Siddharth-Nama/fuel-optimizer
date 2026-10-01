@@ -39,7 +39,7 @@ python -m venv venv
 }
 ```
 
-The response holds the route geometry, the start station, the ordered fuel stops (each with its `route_mile`, gallons bought and CSV price), `trip_gallons`, `total_cost_usd`, and how many Nominatim and OSRM calls the request made. Its `map` field is a GeoJSON FeatureCollection with the route line, start and finish points, and one point per fuel stop. Paste it into [geojson.io](https://geojson.io) to see the trip.
+The response holds the route geometry, the start station, the ordered fuel stops (each with its `route_mile`, gallons bought and CSV price), `trip_gallons` and `total_cost_usd`. Its `map` field is a GeoJSON FeatureCollection with the route line, start and finish points, and one point per fuel stop. Paste it into [geojson.io](https://geojson.io) to see the trip.
 
 Coordinates make one OSRM call. Two city names add at most two Nominatim lookups. Repeat requests reuse in-memory caches: place names until the server restarts, routes for 10 minutes. A repeated trip makes no external calls.
 
@@ -53,7 +53,7 @@ route             miles, minutes, geometry [{lat, lng}, ...]
 fuel              mpg, range_miles, tank_gallons, trip_gallons, total_cost_usd,
                   start_station {name, city, state, price_per_gallon, lat, lng, route_mile, gallons, cost_usd, ...},
                   stops [{same fields}, ...] in road order
-external_calls    {nominatim, osrm} made by this request
+map               GeoJSON FeatureCollection: copy this value into geojson.io
 ```
 
 ### Errors
@@ -77,11 +77,3 @@ Every error returns `{"error": "..."}`.
    - Each stop costs gallons bought × that stop's price.
    - `total_cost_usd` is the sum of those costs, so it is never $0. A 300-mile trip makes no stops and costs 30 × the start price.
 6. `trip_gallons` is always route miles / 10. The gallons charged add up to it.
-
-## Assumptions
-
-- A truck stop counts only when it sits within 10 miles of the driven road. Its `route_mile` is how far along the road it is.
-- Fuel is bought only at stops in the CSV, at their retail price. When a stop is listed more than once, its lowest price is used.
-- Start and finish must be in the contiguous United States (lower 48). For coordinates, this is a bounding-box check, so it also lets through nearby parts of Canada and Mexico. A place name must geocode to the US.
-- The CSV has no coordinates. `scripts/build_station_index.py` locates each stop once and writes `data/stations_geocoded.json`. It uses the stop's town from the Census place list and snaps the stop to its highway exit when the CSV gives one. The API never geocodes stops.
-- Canadian rows in the CSV are skipped.
