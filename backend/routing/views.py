@@ -5,6 +5,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from routing.geo import InvalidLocation, parse_location, require_usa
+from routing.maps import MapServiceError, geocode
 
 
 def health(request):
@@ -13,6 +14,12 @@ def health(request):
 
 def _error(message, status=400):
     return JsonResponse({"error": message}, status=status)
+
+
+def _resolve(point, field):
+    if "lat" in point:
+        return require_usa(point, field)
+    return geocode(point["name"], field)
 
 
 @csrf_exempt
@@ -28,10 +35,11 @@ def plan_route(request):
     try:
         start = parse_location(body.get("start"), "start")
         finish = parse_location(body.get("finish"), "finish")
-        for point, field in ((start, "start"), (finish, "finish")):
-            if "lat" in point:
-                require_usa(point, field)
+        start = _resolve(start, "start")
+        finish = _resolve(finish, "finish")
     except InvalidLocation as exc:
         return _error(str(exc))
+    except MapServiceError:
+        return _error("The geocoding service is unavailable. Try again or send coordinates.", 502)
 
     return JsonResponse({"start": start, "finish": finish})
