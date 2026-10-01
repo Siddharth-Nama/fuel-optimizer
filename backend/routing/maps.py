@@ -6,6 +6,8 @@ import urllib.request
 from routing.geo import InvalidLocation, require_usa
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
+METERS_PER_MILE = 1609.344
 USER_AGENT = "fuel-optimizer-assessment/1.0"
 TIMEOUT_SECONDS = 10
 
@@ -21,6 +23,11 @@ def _get_json(url):
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
             return json.load(response)
+    except urllib.error.HTTPError as exc:
+        try:
+            return json.load(exc)
+        except ValueError:
+            raise MapServiceError(str(exc)) from exc
     except (urllib.error.URLError, TimeoutError, ValueError) as exc:
         raise MapServiceError(str(exc)) from exc
 
@@ -44,3 +51,22 @@ def geocode(name, field):
     if point is None:
         raise InvalidLocation(f"{field} '{name}' was not found in the United States.")
     return require_usa({"name": name, **point}, field)
+
+
+def route(start, finish):
+    coords = f"{start['lng']},{start['lat']};{finish['lng']},{finish['lat']}"
+    query = urllib.parse.urlencode({"overview": "simplified", "geometries": "geojson"})
+    data = _get_json(f"{OSRM_URL}/{coords}?{query}")
+
+    code = data.get("code") if isinstance(data, dict) else None
+    if code in ("NoRoute", "NoSegment"):
+        raise InvalidLocation("No driving route connects start and finish.")
+    if code != "Ok" or not data.get("routes"):
+        raise MapServiceError(f"OSRM returned {code or 'an unexpected response'}.")
+
+    best = data["routes"][0]
+    return {
+        "miles": best["distance"] / METERS_PER_MILE,
+        "minutes": best["duration"] / 60,
+        "coordinates": best["geometry"]["coordinates"],
+    }

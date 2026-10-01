@@ -47,8 +47,9 @@ Coordinates make one OSRM call. Two city names add at most two Nominatim lookups
 
 Every error returns `{"error": "..."}`.
 
-- `400`: the body isn't JSON, `start` or `finish` is missing or empty, a coordinate isn't a number, or a place is outside the contiguous United States.
+- `400`: the body isn't JSON, `start` or `finish` is missing or empty, a coordinate isn't a number, a place is outside the contiguous United States, or no road connects start and finish.
 - `422`: no truck stop within 500 miles of the start, or a stretch of road longer than 500 miles with no truck stop.
+- `502`: Nominatim or OSRM is down or too slow. Sending coordinates avoids Nominatim.
 
 ## How the fuel plan works
 
