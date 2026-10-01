@@ -1,23 +1,28 @@
-import json
-
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from rest_framework.decorators import api_view
+from rest_framework.exceptions import ParseError
+from rest_framework.response import Response
 
 from routing.fuel import FuelPlanError, fuel_plan
-from routing.geo import InvalidLocation, parse_location, require_usa
+from routing.geo import InvalidLocation, require_usa
 from routing.geojson import trip_map
 from routing.maps import MapServiceError, geocode, route
 from routing.route import mile_markers
+from routing.serializers import RouteRequestSerializer, StationSerializer
 from routing.stations import stations_along_route
 
 
+@api_view(["GET"])
 def health(request):
-    return JsonResponse({"status": "ok"})
+    return Response({"status": "ok"})
 
 
 def _error(message, status=400):
-    return JsonResponse({"error": message}, status=status)
+    return Response({"error": message}, status=status)
+
+
+def _first_error(errors):
+    messages = next(iter(errors.values()))
+    return str(messages[0])
 
 
 def _resolve(point, field):
@@ -26,37 +31,22 @@ def _resolve(point, field):
     return geocode(point["name"], field)
 
 
-def _station_json(station):
-    return {
-        "opis_id": station["opis_id"],
-        "name": station["name"],
-        "address": station["address"],
-        "city": station["city"],
-        "state": station["state"],
-        "price_per_gallon": station["price"],
-        "lat": station["lat"],
-        "lng": station["lng"],
-        "route_mile": round(station["route_mile"], 1),
-        "gallons": round(station["gallons"], 2),
-        "cost_usd": round(station["cost_usd"], 2),
-    }
-
-
-@csrf_exempt
-@require_POST
+@api_view(["POST"])
 def plan_route(request):
     try:
-        body = json.loads(request.body or b"{}")
-    except (UnicodeDecodeError, json.JSONDecodeError):
+        body = request.data
+    except ParseError:
         return _error("Request body must be valid JSON.")
     if not isinstance(body, dict):
         return _error("Request body must be a JSON object.")
 
+    request_serializer = RouteRequestSerializer(data=body)
+    if not request_serializer.is_valid():
+        return _error(_first_error(request_serializer.errors))
+
     try:
-        start = parse_location(body.get("start"), "start")
-        finish = parse_location(body.get("finish"), "finish")
-        start = _resolve(start, "start")
-        finish = _resolve(finish, "finish")
+        start = _resolve(request_serializer.validated_data["start"], "start")
+        finish = _resolve(request_serializer.validated_data["finish"], "finish")
         road = route(start, finish)
     except InvalidLocation as exc:
         return _error(str(exc))
@@ -70,10 +60,10 @@ def plan_route(request):
         return _error(str(exc), 422)
 
     geometry = [{"lat": point["lat"], "lng": point["lng"]} for point in points]
-    start_station = _station_json(plan["start_station"])
-    stops = [_station_json(stop) for stop in plan["stops"]]
+    start_station = StationSerializer(plan["start_station"]).data
+    stops = StationSerializer(plan["stops"], many=True).data
 
-    return JsonResponse(
+    return Response(
         {
             "start": start,
             "finish": finish,
