@@ -11,11 +11,6 @@ def haversine_miles(lat1, lng1, lat2, lng2):
 
 
 def mile_markers(coordinates, road_miles):
-    """Turn OSRM [lng, lat] pairs into points that know how far along the road they are.
-
-    A simplified line cuts corners, so it is shorter than the road. Scaling by
-    OSRM's own distance makes the last point land on the real trip length.
-    """
     points = []
     traveled = 0.0
     for index, (lng, lat) in enumerate(coordinates):
@@ -29,3 +24,14 @@ def mile_markers(coordinates, road_miles):
         for point in points:
             point["mile"] *= scale
     return points
+
+
+def project(a, b, lat, lng):
+    lng_scale = 69.0 * cos(radians(lat))
+    ax, ay = (a["lng"] - lng) * lng_scale, (a["lat"] - lat) * 69.0
+    bx, by = (b["lng"] - lng) * lng_scale, (b["lat"] - lat) * 69.0
+    dx, dy = bx - ax, by - ay
+    length_sq = dx * dx + dy * dy
+    t = 0.0 if length_sq == 0 else -(ax * dx + ay * dy) / length_sq
+    clamped = min(1.0, max(0.0, t))
+    return sqrt((ax + clamped * dx) ** 2 + (ay + clamped * dy) ** 2), t
