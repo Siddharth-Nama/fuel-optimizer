@@ -11,7 +11,7 @@ def _stop_for(station):
 
 def plan_stops(stations, total_miles, range_miles=RANGE_MILES):
     if not stations or stations[0]["route_mile"] > range_miles:
-        raise FuelPlanError(f"No truck stop within {range_miles} miles of the start.")
+        raise FuelPlanError(f"No truck stop from the price list within {range_miles} miles of the start.")
 
     start_station = stations[0]
     position = 0.0
@@ -46,7 +46,8 @@ def plan_stops(stations, total_miles, range_miles=RANGE_MILES):
             target = min(ahead, key=lambda index: (stations[index]["price"], -stations[index]["route_mile"]))
         else:
             raise FuelPlanError(
-                f"No truck stop within {range_miles} miles after mile {position:.0f}; the truck would run dry."
+                f"No truck stop from the price list within {range_miles} miles after route mile {position:.0f}; "
+                "the truck would run out of fuel."
             )
 
         fuel -= stations[target]["route_mile"] - position

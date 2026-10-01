@@ -4,7 +4,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from routing.fuel import fuel_plan
+from routing.fuel import FuelPlanError, fuel_plan
 from routing.geo import InvalidLocation, parse_location, require_usa
 from routing.maps import MapServiceError, geocode, route
 from routing.route import mile_markers
@@ -64,7 +64,10 @@ def plan_route(request):
         return _error("A map service is unavailable. Try again, or send coordinates to skip geocoding.", 502)
 
     points = mile_markers(road["coordinates"], road["miles"])
-    plan = fuel_plan(stations_along_route(points), road["miles"])
+    try:
+        plan = fuel_plan(stations_along_route(points), road["miles"])
+    except FuelPlanError as exc:
+        return _error(str(exc), 422)
 
     return JsonResponse(
         {

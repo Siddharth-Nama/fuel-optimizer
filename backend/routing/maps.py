@@ -1,4 +1,5 @@
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -12,6 +13,9 @@ USER_AGENT = "fuel-optimizer-assessment/1.0"
 TIMEOUT_SECONDS = 10
 
 _place_cache = {}
+_route_cache = {}  # (start, finish) rounded -> (saved_at, route)
+ROUTE_CACHE_SECONDS = 10 * 60
+ROUTE_CACHE_SIZE = 256
 
 
 class MapServiceError(Exception):
@@ -55,7 +59,16 @@ def geocode(name, field, calls=None):
     return require_usa({"name": name, **point}, field)
 
 
+def _route_key(start, finish):
+    return tuple(round(value, 4) for value in (start["lat"], start["lng"], finish["lat"], finish["lng"]))
+
+
 def route(start, finish, calls=None):
+    key = _route_key(start, finish)
+    cached = _route_cache.get(key)
+    if cached and time.monotonic() - cached[0] < ROUTE_CACHE_SECONDS:
+        return cached[1]
+
     coords = f"{start['lng']},{start['lat']};{finish['lng']},{finish['lat']}"
     query = urllib.parse.urlencode({"overview": "simplified", "geometries": "geojson"})
     data = _get_json(f"{OSRM_URL}/{coords}?{query}")
@@ -69,8 +82,12 @@ def route(start, finish, calls=None):
         raise MapServiceError(f"OSRM returned {code or 'an unexpected response'}.")
 
     best = data["routes"][0]
-    return {
+    result = {
         "miles": best["distance"] / METERS_PER_MILE,
         "minutes": best["duration"] / 60,
         "coordinates": best["geometry"]["coordinates"],
     }
+    if len(_route_cache) >= ROUTE_CACHE_SIZE:
+        _route_cache.pop(next(iter(_route_cache)))  # oldest first
+    _route_cache[key] = (time.monotonic(), result)
+    return result
