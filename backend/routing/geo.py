@@ -28,3 +28,20 @@ def parse_location(value, field):
             "lng": _coordinate(value["lng"], field, "lng"),
         }
     raise InvalidLocation(f"{field} must be a place name or an object with lat and lng.")
+
+
+# Lower 48 states. A box is coarse: it also admits bits of Canada and Mexico, and named places are checked against the country Nominatim returns.
+USA_BOUNDS = {"south": 24.4, "north": 49.4, "west": -124.8, "east": -66.9}
+
+
+def in_usa(lat, lng):
+    return (
+        USA_BOUNDS["south"] <= lat <= USA_BOUNDS["north"]
+        and USA_BOUNDS["west"] <= lng <= USA_BOUNDS["east"]
+    )
+
+
+def require_usa(point, field):
+    if not in_usa(point["lat"], point["lng"]):
+        raise InvalidLocation(f"{field} must be in the contiguous United States.")
+    return point

@@ -1,16 +1,30 @@
-﻿# fuel-optimizer
+# fuel-optimizer
 
 API for a US driving route and the cheapest truck stops to fuel at along it.
 
-The truck starts with a full tank, gets 10 miles per gallon, and can travel 500 miles on that tank. Prices come from the Spotter CSV. The road comes from one OSRM call.
+The truck gets 10 miles per gallon and can travel 500 miles on a full 50-gallon tank. Prices come from the Spotter CSV. The road comes from one OSRM call.
 
 ## Run
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python -m pip install -r requirements.txt
-.\.venv\Scripts\python backend\manage.py runserver
+macOS / Linux:
+
+```bash
+python3 -m venv venv
+venv/bin/python -m pip install -r requirements.txt
+venv/bin/python backend/manage.py runserver
 ```
+
+Windows (PowerShell):
+
+```powershell
+python -m venv venv
+.\venv\Scripts\python -m pip install -r requirements.txt
+.\venv\Scripts\python backend\manage.py runserver
+```
+
+`GET http://127.0.0.1:8000/api/health/` returns `{"status": "ok"}`.
+
+## Plan a trip
 
 `POST http://127.0.0.1:8000/api/route/plan/`
 
@@ -25,14 +39,35 @@ python -m venv .venv
 }
 ```
 
+The response holds the route geometry, the start station, the ordered fuel stops (each with its `route_mile`, gallons bought and CSV price), `trip_gallons`, `total_cost_usd`, and how many Nominatim and OSRM calls the request made. Its `map` field is a GeoJSON FeatureCollection with the route line, start and finish points, and one point per fuel stop. Paste it into [geojson.io](https://geojson.io) to see the trip.
+
 Coordinates make one OSRM call. Two city names add at most two Nominatim lookups. Repeat requests reuse an in-memory cache. Import `postman/fuel-optimizer.postman_collection.json` for the same calls.
+
+### Errors
+
+Every error returns `{"error": "..."}`.
+
+- `400`: the body isn't JSON, `start` or `finish` is missing or empty, a coordinate isn't a number, or a place is outside the contiguous United States.
+- `422`: no truck stop within 500 miles of the start, or a stretch of road longer than 500 miles with no truck stop.
+
+## How the fuel plan works
+
+1. The start station is the first truck stop the truck reaches on the road.
+2. The tank starts full (500 miles) and is priced at the start station's CSV price.
+3. If the finish is within 500 miles, there are no stops.
+4. Otherwise, at each point the truck looks ahead one full tank (500 miles):
+   - If a cheaper stop is in range, it buys just enough to reach the nearest one. It skips the more expensive stops in between.
+   - If no cheaper stop is in range, it fills up. If the finish is closer, it buys only enough to reach the finish. After filling up, it drives to the cheapest stop in range.
+5. The trip is charged only for fuel it burns:
+   - The starting tank costs start price × the gallons used from it.
+   - Each stop costs gallons bought × that stop's price.
+   - `total_cost_usd` is the sum of those costs, so it is never $0. A 300-mile trip makes no stops and costs 30 × the start price.
+6. `trip_gallons` is always route miles / 10. The gallons charged add up to it.
 
 ## Assumptions
 
-- The tank starts full (50 gallons). `total_cost_usd` is money paid at pumps on this trip. A trip under 500 miles can cost $0.
-- `trip_gallons` is always route miles / 10.
-- A stop counts when it sits within 8 miles of the driven road.
-- The CSV has no coordinates. `scripts/build_station_index.py` resolves each US highway exit once into `data/stations_geocoded.json`. The API does not geocode stops.
+- A truck stop counts only when it sits within 10 miles of the driven road. Its `route_mile` is how far along the road it is.
+- Fuel is bought only at stops in the CSV, at their retail price. When a stop is listed more than once, its lowest price is used.
+- Start and finish must be in the contiguous United States (lower 48). For coordinates, this is a bounding-box check, so it also lets through nearby parts of Canada and Mexico. A place name must geocode to the US.
+- The CSV has no coordinates. `scripts/build_station_index.py` locates each stop once and writes `data/stations_geocoded.json`. It uses the stop's town from the Census place list and snaps the stop to its highway exit when the CSV gives one. The API never geocodes stops.
 - Canadian rows in the CSV are skipped.
-
-```
